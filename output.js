@@ -1,42 +1,18 @@
-const data = [1, 2, 3, 4, 5];
-/*library*/
-const IN1 = () => {
-  console.log('ВХОД: ', data);
-  return data;
-};
-const run = (fn) => {
-  console.log('ВЫВОД:', fn(IN1()));
-};
-const ПРИМ = (F, ...args) => () => F(...args);
-const ПРОЦ = (F, ...FNs) => FNs.reduce((a, f) => f(a), F());
-const РАВН = (A, B) => A !== B ? 0 : 1;
-const СЛОЖ = (A, B) => A + B;
-const ВАР = (P, F1, F2) => P !== 0 ? F1() : F2();
-const ДЛН = (A) => A.length;
-const НАЧ = ([A]) => A;
-const ХВОСТ = ([, ...L]) => L;
-const СОЕД = (L1, L2) => [...L1, ...L2];
-const ТЕКСТ = (v) => v.split('');
-const ЧИСЛО = (v) =>
-  Number.isFinite(+v)
-    ? Math.floor(
-      Math.max(
-        -1000,
-        Math.min(1000, v)
-      )
-    )
-    : 0;
-const ВЫВОД = (v) => {
-  if (typeof v === 'number' || typeof v === 'string') {
-    console.log(v);
-    return;
-  }
-  if (v.length !== undefined) {
-    console.log(v.join(''))
-  }
-}
-// code
-const Т1=()=>(ТЕКСТ("ПРИВЕТ МИР! "));
-const Т2=()=>(ТЕКСТ("ЭТО ПРОСТАЯ ПРОГРАММА"));
-const ОТВЕТ=()=>(ВЫВОД(СОЕД(Т1(),Т2())),0);
-run(ОТВЕТ)
+const m_ТЕСТ = function () {
+  const m_Ф1 = () => (2);
+  const m_Ф2 = (m_ИКС) => (m_ИКС);
+  const m_УДВ = (m_ИКС) => (m_СЛОЖ(m_ИКС,m_ИКС));
+  const m_Ф3 = () => (m_УДВ);
+  const m_Ф4 = (m_ИКС,m_Ф) => (m_Ф(m_ИКС));
+  const m_Ф5 = () => (m_СПИСОК(1,m_Ф2(m_Ф1())));
+  const m_Ф6 = (m_ИКС) => (m_СПИСОК(m_ИКС,m_Ф4(m_Ф1(),m_УДВ),5,m_Ф3()(m_ИКС)));
+  const m_Ф7 = () => (m_Ф6(3));
+  const m_Ф8 = () => (m_СПИСОК(m_Ф5(),m_Ф7()));
+  const m_Ф9 = () => (m_СПИСОК(m_Ф8(),7));
+  const m_ФС1 = () => (m_ТЕКСТ("Привет Мир! "));
+  const m_ФС2 = () => (m_ТЕКСТ("Привет "));
+  const m_ФС3 = (m_ИМЯ) => (m_ИМЯ);
+  const m_ФС4 = (m_ИМЯ) => (m_СПИСОК(m_ФС1(),m_ФС2(),m_ФС3(m_ИМЯ)));
+  const m_Ф = (m_ИМЯ) => (m_ВЫВОДС(m_ФС4(m_ИМЯ)),m_ВЫВОД(m_Ф9()),0);
+  return m_Ф;
+}();

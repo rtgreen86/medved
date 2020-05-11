@@ -1,159 +1,202 @@
 const fs = require('fs');
 
-const header = `const data = [1, 2, 3, 4, 5];
-/*library*/
-const IN1 = () => {
-  console.log('ВХОД: ', data);
-  return data;
-};
-const run = (fn) => {
-  console.log('ВЫВОД:', fn(IN1()));
-};
-const ПРИМ = (F, ...args) => () => F(...args);
-const ПРОЦ = (F, ...FNs) => FNs.reduce((a, f) => f(a), F());
-const РАВН = (A, B) => A !== B ? 0 : 1;
-const СЛОЖ = (A, B) => A + B;
-const ВАР = (P, F1, F2) => P !== 0 ? F1() : F2();
-const ДЛН = (A) => A.length;
-const НАЧ = ([A]) => A;
-const ХВОСТ = ([, ...L]) => L;
-const СОЕД = (L1, L2) => [...L1, ...L2];
-const ТЕКСТ = (v) => v.split('');
-const ЧИСЛО = (v) =>
-  Number.isFinite(+v)
-    ? Math.floor(
-      Math.max(
-        -1000,
-        Math.min(1000, v)
-      )
-    )
-    : 0;
-const ВЫВОД = (v) => {
-  if (typeof v === 'number' || typeof v === 'string') {
-    console.log(v);
-    return;
-  }
-  if (v.length !== undefined) {
-    console.log(v.join(''))
-  }
-}
-// code
-`;
+// --- lexic analysis ---
 
 const letters = 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЬЫЪЭЮЯ';
-
 const numConst = `\\d+`;
 const sym = `[${letters}][${letters}\\d]*`;
-const operators = `=>|\\(|\\)|,`;
+const operators = `=|\\(|\\)|,`;
 const spaces = `[\\s]+`;
 const linebreak = `\\r?\\n`;
-const comment = `#[^\\n]*\\n`;
+const comment = `\\/\\/[^\\n]*\\n`;
 const textConst = '"[^"]*"';
 
+const tokens = {
+  'NUM_CONST': `(${numConst})`,
+  'TEXT_CONST': `(${textConst})`,
+  'SYMBOL': `(${sym})`,
+  'OPERATOR': `(${operators})`,
+  'BR': `(${linebreak})`,
+  'SPACE': `(${spaces})`,
+  'COMMENT': `(${comment})`,
+  'UNKNOWN': '[\\s\\S]'
+}
+
+function getTokenType(types, rxRes) {
+  return Array.from(rxRes)
+    .slice(1) // skip substring, use only groups
+    .map((item, index) => item === undefined ? undefined : index)
+    .filter(item => item !== undefined)
+    .map(idx =>
+      types.length > idx
+        ? types[idx]
+        : ''
+    );
+}
+
 function * tokenize(buffer) {
+  const tokenTypes = Object.keys(tokens);
   const tokenRX = new RegExp(
-    `(${numConst})|` +
-    `(${textConst})|` +
-    `(${sym})|` +
-    `(${operators})|` +
-    `(${linebreak})|` +
-    `(${spaces})|` +
-    `(${comment})|` +
-    '[\\s\\S]', // wroing symbol
+    tokenTypes.map(t => tokens[t]).join('|'),
     'g'
   );
   let token;
   while ((token = tokenRX.exec(buffer)) !== null) {
     yield {
       text: token[0],
-      index: token.index
+      index: token.index,
+      type: getTokenType(tokenTypes, token).join()
     };
   }
 }
 
-const symbolRx = new RegExp(`^${sym}$`);
-const constRx = new RegExp(
-  `(^${numConst}$)|` +
-  `(^${textConst}$)`
-);
-const textConstRx = new RegExp(numConst);
-const opRx = new RegExp(operators);
-const linebrRx = new RegExp(linebreak);
-const skipTokensRx = new RegExp(
-  `(^${linebreak}$)|` +
-  `(^#)|` +
-  `(^${spaces}$)`
-);
+// --- Syntax analysis
 
-const symbols = new Set([
-  'ПРИМ', 'ПРОЦ', 'РАВН', 'СЛОЖ',
-  'ВАР', 'ДЛН', 'НАЧ', 'ХВОСТ',
-  'СТАРТ', 'СТОП', 'ПУСТЬ',
-  'ТЕКСТ', 'ЧИСЛО', 'ВЫВОД',
-  'НЕИ', 'НЕГ', 'СОЕД', 'СТР'
-]);
+const keywords = [
+  'ПУСТЬ', 'МОДУЛЬ', 'СТАРТ', 'СЕБЯ'
+];
+
+const globals = [
+  'СЛОЖ', 'ИНВ', 'ОТР',
+  'НЕИ', 'СПИСОК',
+  'ГОЛОВА', 'ХВОСТ', 'ПУСТО',
+  'ВЫБОР',
+  'ВЫВОД', 'ВЫВОДС'
+];
+
+const prefix = 'm_';
+const maxSymLen = 6;
+
+function wrapSym(sym) {
+  return `${prefix}${sym}`;
+};
 
 class JsBuilder {
-  constructor(globals) {
-    this.buffer = [];
-    this.globals = globals;
+  constructor(keywords, globals) {
+    this.keywords = new Set(keywords);
+    this.globals = new Set(globals);
+    this.module = new Set();
     this.locals = new Set();
-    this.error = null;
+
+    this.moduleName = null;
+    this.fnName = null;
+
+    this.buffer = [];
+
     this.line = 1;
     this.brackets = 0;
-    this.firstInst = true;
   }
 
-  header() {
-    this.buffer.push(header);
+  error(message) {
+    return new Error(`${message} в строке ${this.line}.`);
   }
 
-  addError(message) {
-    this.error = new Error(`${message} в строке ${this.line}.`);
+  errorSymTooLong() {
+    return this.error('Длинна СИМВОЛА привышает ГОСТ*');
   }
 
-  addEndInst() {
-    if (!this.firstInst) {
-      this.buffer.push(');\n');
+  errorSymUsed(name) {
+    return this.error(`СИМВОЛ «${name}» уже определен`);
+  }
+
+  errorUnknownSym(name) {
+    return this.error(`Неизвестный СИМВОЛ «${name.substring(0, 10)}...»`);
+  }
+
+  startModule(token) {
+    if (this.moduleName !== null) {
+      throw this.error('Модуль уже объявлен');
     }
-    this.firstInst = false;
+
+    if (
+      this.keywords.has(token) ||
+      this.globals.has(token)
+    ) {
+      throw this.errorSymUsed(token);
+    }
+
+    if (token.length > maxSymLen) {
+      throw this.errorSymTooLong();
+    }
+
+    this.moduleName = token;
+    this.buffer.push(`const ${wrapSym(this.moduleName)} = function () {\n`);
   }
 
-  defStart() {
+  endModule(funcName) {
+    if (this.moduleName === null) return;
+
+    if (
+      !this.globals.has(funcName) &&
+      !this.module.has(funcName)
+    ) {
+      throw this.errorUnknownSym(funcName);
+    }
+
+    this.buffer.push(`  return ${wrapSym(funcName)};\n}();\n`);
+    this.globals.add(this.moduleName);
+    this.moduleName = null;
+    this.module.clear();
+  }
+
+  startFunction(token) {
+    if (token.length > maxSymLen) {
+      throw this.errorSymTooLong()
+    }
+
+    if (
+      this.keywords.has(token) ||
+      this.globals.has(token) ||
+      this.module.has(token) ||
+      this.moduleName === token
+    ) {
+      throw this.errorSymUsed(token);
+    }
+
+    this.fnName = token;
+    this.buffer.push(`  const ${wrapSym(token)} = `);
+    this.module.add(token);
+  }
+
+  endFunction() {
+    if (this.fnName === null) return;
+
     if (this.brackets > 0) {
-      this.addError('Незакрыта скобка');
-      return;
+      throw this.error('Незакрыта скобка');
     }
+
     this.locals.clear();
-    this.buffer.push('const ');
+    this.buffer.push(');\n');
+    this.fnName = null;
   }
 
-  checkSym(token) {
-    if (token.length > 5) {
-      this.addError('Длинна СИМВОЛА привышает ГОСТ*');
-      return;
+  addLocalSym(token) {
+    if (token.length > maxSymLen) {
+      throw this.errorSymTooLong()
     }
-    if (this.globals.has(token) || this.locals.has(token)) {
-      this.addError(`Невозможно переопределить СИМВОЛ «${token}»`);
-      return;
+
+    if (
+      this.keywords.has(token) ||
+      this.globals.has(token) ||
+      this.module.has(token) ||
+      this.locals.has(token)
+    ) {
+      throw this.errorSymUsed(token);
     }
-  }
 
-  defGlobalSym(token) {
-    this.checkSym(token);
-    if (this.error) return;
-    this.globals.add(token);
-    this.buffer.push(token, '=');
-  }
-
-  defLocalSym(token) {
-    this.checkSym(token);
-    if (this.error) return;
     this.locals.add(token);
-    this.buffer.push(token);
+    this.buffer.push(wrapSym(token));
   }
 
-  addOp(token) {
+  newLine() {
+    this.line++;
+  }
+
+  operator(token) {
+    if (token === '=') {
+      this.buffer.push(' => (');
+      return;
+    }
     if (token === '(') {
       this.brackets++;
     }
@@ -161,33 +204,46 @@ class JsBuilder {
       this.brackets--;
     }
     if (this.brackets < 0) {
-      this.addError('Количество закрытых скобок нарушают ГОСТ*');
-      return;
-    }
-    this.buffer.push(token);
-    if (token === '=>') {
-      this.buffer.push('(');
-    }
-  }
-
-  addSym(token) {
-    if (token.length > 5) {
-      this.addError('Длинна СИМВОЛА привышает ГОСТ*');
-      return;
-    }
-    if (!this.globals.has(token) && !this.locals.has(token)) {
-      this.addError(`Неизвестный СИМВОЛ «${token}»`);
+      throw this.error('Количество закрытых скобок нарушают ГОСТ*');
       return;
     }
     this.buffer.push(token);
   }
 
-  addBr() {
-    this.line++;
+  token(token) {
+    this.buffer.push(token);
   }
 
-  addRun() {
-    this.buffer.push('run');
+  symbol(token) {
+    if (
+      !this.keywords.has(token) &&
+      !this.globals.has(token) &&
+      !this.module.has(token) &&
+      !this.locals.has(token)
+    ) {
+      throw this.errorUnknownSym(token);
+    }
+
+    this.buffer.push(wrapSym(token));
+  }
+
+  addNumConst(token) {
+    const val = +token;
+    if (
+      !Number.isFinite(val) ||
+      val > 1000
+    ) {
+      throw this.error('Числовая константа нарушает ГОСТ*');
+    }
+    this.buffer.push(val);
+  }
+
+  addTextConst(token) {
+    this.buffer.push(`${prefix}ТЕКСТ(${token})`);
+  }
+
+  self() {
+    this.buffer.push(wrapSym(this.fnName));
   }
 }
 
@@ -195,108 +251,153 @@ class TranslateDirector {
   constructor(builder) {
     this.builder = builder;
     this.state = 0;
-    this.builder.header();
   }
 
-  process(token) {
-    if (this.builder.error) {
+  process({text, type}) {
+    if (type === 'BR' || type === 'COMMENT') {
+      this.builder.newLine();
       return;
     }
-
-    if (linebrRx.test(token)) {
-      this.builder.addBr();
-    }
-    if (skipTokensRx.test(token)) {
+    if (type === 'SPACE') {
       return;
     }
 
     switch(this.state) {
+      // root cases 0 - 10
       case 0:
-        if (token === 'ПУСТЬ') {
-          this.builder.addEndInst();
-          this.builder.defStart();
+        if (text === 'МОДУЛЬ') {
           this.state = 1;
           return;
         }
-        if (token === 'СТАРТ') {
-          this.builder.addEndInst();
-          this.builder.addRun();
-          return;
-        }
-        if (symbolRx.test(token)) {
-          this.builder.addSym(token);
-          return;
-        }
-        if (token === '=>') {
-          this.builder.addError(`Ввод ${token} не соответствует ГОСТ*`);
-        }
-        if (opRx.test(token) || constRx.test(token)) {
-          this.builder.addOp(token);
-          return;
-        }
-        this.builder.addError(`Ввод ${token.substring(0, 10)}... не соответствует ГОСТ*`);
-        return;
-
+        throw this.builder.error('По ГОСТ* ождидается объявление');
       case 1:
-        if (symbolRx.test(token)) {
-          this.builder.defGlobalSym(token);
-          this.state = 2;
+        if (type === 'SYMBOL') {
+          this.builder.startModule(text);
+          this.state = 10;
           return;
         }
-        this.builder.addError(`Должен быть СИМВОЛ`);
-        return;
+        throw this.builder.error('По ГОСТ* ождидается имя модуля');
 
-      case 2:
-        if (token === '(') {
-          this.builder.addOp(token);
-          this.state = 3;
+      // in module 10 - 20
+      case 10:
+        if (text === 'ПУСТЬ') {
+          this.state = 20;
           return;
         }
-        this.builder.addError(`Должна быть (`);
-        return;
+        if (token === 'СТАРТ') {
+          this.state = 40;
+          return;
+        }
+        throw this.builder.error('По ГОСТ* ождидается объявление');
 
-      case 3:
-        if (symbolRx.test(token)) {
-          this.builder.defLocalSym(token);
+      // function definition cases 20 - 30
+      case 20:
+        if (type === 'SYMBOL') {
+          this.builder.startFunction(text);
+          this.state = 21;
+          return
+        }
+        throw this.builder.error('По ГОСТ* ождидается имя функции');
+      case 21:
+        if (text === '(') {
+          this.builder.operator(text);
+          this.state = 22;
           return;
         }
-        if (token === ',') {
-          this.builder.addOp(token);
+        throw this.builder.error('По ГОСТ* ожидаются параметры функции');
+      case 22:
+        if (text === ')') {
+          this.builder.operator(text);
+          this.state = 25;
           return;
         }
-        if (token === ')') {
-          this.builder.addOp(token);
-          this.state = 4;
+        if (type === 'SYMBOL') {
+          this.builder.addLocalSym(text);
+          this.state = 23;
           return;
         }
-        this.builder.addError(`Прерванно объявление СИМВОЛА`);
-        return;
+        throw this.builder.error('По ГОСТ* ожидаются параметры функции');
+      case 23:
+        if (text === ')') {
+          this.builder.operator(text);
+          this.state = 25;
+          return;
+        }
+        if (text === ',') {
+          this.builder.operator(text);
+          this.state = 24;
+          return;
+        }
+        throw this.builder.error('По ГОСТ* ожидаются параметры функции');
+      case 24:
+        if (type === 'SYMBOL') {
+          this.builder.addLocalSym(text);
+          this.state = 23;
+          return;
+        }
+        throw this.builder.error('По ГОСТ* ожидаются параметры функции');
+      case 25:
+        if (text === '=') {
+          this.builder.operator(text);
+          this.state = 30;
+          return;
+        }
+        throw this.builder.error('По ГОСТ* ожидаются объявление функции');
 
-      case 4:
-        if (token === '=>') {
-          this.builder.addOp(token);
+      // In function cases 30 - 40
+      case 30:
+        if (text === 'ПУСТЬ') {
+          this.builder.endFunction();
+          this.state = 20;
+          return;
+        }
+        if (text === 'СЕБЯ') {
+          this.builder.self();
+          return;
+        }
+        if (text === 'СТАРТ') {
+          this.builder.endFunction();
+          this.state = 40;
+          return;
+        }
+        if (type === 'NUM_CONST') {
+          this.builder.addNumConst(text);
+          return;
+        }
+        if (type === 'TEXT_CONST') {
+          this.builder.addTextConst(text);
+          return;
+        }
+        if (type === 'SYMBOL') {
+          this.builder.symbol(text);
+          return;
+        }
+        if (type === 'OPERATOR') {
+          this.builder.operator(text);
+          return;
+        }
+        throw this.builder.error('Ввод не соответсвует ГОСТ*');
+
+      // End module cases 40 - 50
+      case 40:
+        if (type === 'SYMBOL') {
+          this.builder.endModule(text);
           this.state = 0;
           return;
         }
-        this.builder.addError(`По ГОСТ* требуется =>`);
-        return;
+        throw this.builder.error('По ГОСТ* ождидается имя функции');
     }
   }
 }
 
 const content = fs.readFileSync('input.dat', 'utf8');
-const jsb = new JsBuilder(symbols);
+const jsb = new JsBuilder(keywords, globals);
 const dir = new TranslateDirector(jsb);
 for (const token of tokenize(content)) {
-  const { text } = token;
-  dir.process(text);
+  dir.process(token);
 }
 
 const result = jsb.buffer.join('');
-
-if (jsb.error) {
-  throw jsb.error;
-}
 
 fs.writeFileSync('output.js', result, 'utf8');
 console.log('Complete!')
