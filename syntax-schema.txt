@@ -1,0 +1,23 @@
+Expression
+
+expr -> SYMBOL | NUMBER | "Text"       ->   end
+ \-> ( -> expr -> ) ->                /
+  \-> + | - | , -> expr ->           /
+   \-> ( -> expr -> ) ->            /
+    \-> ? -> expr -> : -> expr ->  /
+
+
+Definition
+
+                     ________
+                    /        \
+let -> SYMBOL -> ( -> SYM ->  ,   /-->  ) ->  = -> expr
+        \         \    \---------/ /       /
+         \         \--------------/       /
+          \------------------------------/
+
+
+Run
+
+run -> expr
+
