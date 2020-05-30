@@ -233,14 +233,28 @@ function parser(
 
 // -------
 
-const content = fs.readFileSync('expression-parser-input-2.dat', 'utf8');
-const tokens = [...tokenize(content)];
-const { stack: expr } = tokens.reduce(
-  parser,
-  {
-    globals: new Set(globals)
-  }
-);
+(function test1() {
+  const content = fs.readFileSync('expression-parser-input.dat', 'utf8');
+  const tokens = [...tokenize(content)];
+  const { stack: expr } = tokens.reduce(
+    parser,
+    {
+      globals: new Set(globals)
+    }
+  );
+  console.log(expr[0]);
+  console.log('[1,[[([2,[3+[(3)]]])]-5]]' === expr[0], 'Complete!')
+}());
 
-console.log(expr[0]);
-console.log('Complete!')
+(function test2() {
+  const content = fs.readFileSync('expression-parser-input-2.dat', 'utf8');
+  const tokens = [...tokenize(content)];
+  const { stack: expr } = tokens.reduce(
+    parser,
+    {
+      globals: new Set(globals)
+    }
+  );
+  console.log(expr[0]);
+  console.log('select(([1-1]),(1),(0))' === expr[0], 'Complete!')
+}());
