@@ -80,7 +80,7 @@ function oprWeight(op) {
     case '='   : return 20;
     case ')'   : return 30;
     case 'IF'  :
-    case 'THAN':
+    case 'THEN':
     case 'ELSE': return 40;
     case ','   : return 50;
     case '+'   :
@@ -102,11 +102,22 @@ function fold(stack) {
   }
 
   const opr1 = stack.pop();
+  if (
+    (opr1 === 'IF' && opr2 === 'THEN') ||
+    (opr1 === 'THEN' && opr2 === 'ELSE')
+  ) {
+    stack.push(opr1, rval, opr2);
+    return stack;
+  }
   if (opr1 === '(' && opr2 === ')') {
     stack.push('[' + opr1 + rval + opr2 + ']');
     return stack;
   }
-  if (opr1 === '(') {
+  if (
+    opr1 === '(' ||
+    opr1 === 'IF' ||
+    opr1 === 'THEN'
+  ) {
     stack.push(opr1, rval, opr2);
     return stack;
   }
@@ -119,6 +130,13 @@ function fold(stack) {
   if (oprWeight(opr1) < oprWeight(opr2)) {
     stack.push(lval, opr1, rval, opr2);
     return stack;
+  }
+  if (opr1 === 'ELSE') {
+    stack.pop(); // then keyword
+    const condition = stack.pop();
+    stack.pop(); // if keyword
+    stack.push(`select((${condition}),(${lval}),(${rval}))`, opr2);
+    return fold(stack);
   }
 
   stack.push('[' + lval + opr1 + rval + ']', opr2);
@@ -149,6 +167,9 @@ function parser(
   ) {
     return {stack, locals, globals, line, state};
   }
+  if (type !== 'EOF') {
+    text = text.toUpperCase();
+  }
   switch(state) {
     case 'lvalue':
       if (type === 'NUM_CONST') {
@@ -156,11 +177,27 @@ function parser(
         state = 'operator';
         break;
       }
+      if (
+        text === 'IF' ||
+        text === '('
+      ) {
+        stack.push(text);
+        break;
+      }
       throw error(line, 'Неправильное левое значение');
     case 'operator':
       if (text === ')') {
         stack.push(text);
         stack = fold(stack);
+        break;
+      }
+      if (
+        text === 'THEN' ||
+        text === 'ELSE'
+      ) {
+        stack.push(text);
+        stack = fold(stack);
+        state = 'lvalue';
         break;
       }
       if (type === 'OPERATOR') {
@@ -176,7 +213,10 @@ function parser(
       }
       throw error(line, 'Неправильный оператор');
     case 'rvalue':
-      if (text === '(') {
+      if (
+        text === '(' ||
+        text === 'IF'
+      ) {
         stack.push(text);
         state = 'lvalue';
         break;
@@ -193,7 +233,7 @@ function parser(
 
 // -------
 
-const content = fs.readFileSync('expression-parser-input.dat', 'utf8');
+const content = fs.readFileSync('expression-parser-input-2.dat', 'utf8');
 const tokens = [...tokenize(content)];
 const { stack: expr } = tokens.reduce(
   parser,
