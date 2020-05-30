@@ -75,6 +75,7 @@ function checkNum(sym) {
 
 function oprWeight(op) {
   switch(op.toUpperCase()) {
+    case 'EOF' :
     case 'RUN' :
     case 'LET' : return 10;
     case '='   : return 20;
@@ -123,10 +124,6 @@ function fold(stack) {
   }
 
   const lval = stack.pop();
-  if (rval === 'EOF') {
-    stack.push(lval, opr1, rval);
-    return stack;
-  }
   if (oprWeight(opr1) < oprWeight(opr2)) {
     stack.push(lval, opr1, rval, opr2);
     return stack;
@@ -171,6 +168,7 @@ function parser(
     text = text.toUpperCase();
   }
   switch(state) {
+    case 'rvalue':
     case 'lvalue':
       if (type === 'NUM_CONST') {
         stack.push(text);
@@ -184,7 +182,10 @@ function parser(
         stack.push(text);
         break;
       }
-      throw error(line, 'Неправильное левое значение');
+      throw error(line,
+        state === 'rvalue'
+          ? 'Неправильное правое значние'
+          : 'Неправильное левое значение');
     case 'operator':
       if (text === ')') {
         stack.push(text);
@@ -212,21 +213,6 @@ function parser(
         break;
       }
       throw error(line, 'Неправильный оператор');
-    case 'rvalue':
-      if (
-        text === '(' ||
-        text === 'IF'
-      ) {
-        stack.push(text);
-        state = 'lvalue';
-        break;
-      }
-      if (type === 'NUM_CONST') {
-        stack.push(text);
-        state = 'operator';
-        break;
-      }
-      throw error(line, 'Неправильное правое значние');
   }
   return {stack, locals, globals, line, state};
 }
